@@ -1,0 +1,98 @@
+event_date,event_name,country,city,category,source,event_count
+20260331,session_start,Singapore,Singapore,desktop,(direct),12
+20260331,first_visit,Singapore,Singapore,desktop,(direct),12
+20260331,page_view,Singapore,Singapore,desktop,(direct),12
+20260326,session_start,Singapore,Singapore,desktop,(direct),7
+20260326,page_view,Singapore,Singapore,desktop,(direct),7
+20260326,first_visit,Singapore,Singapore,desktop,(direct),7
+20260331,first_visit,Singapore,"",desktop,(direct),5
+20260331,session_start,Singapore,"",desktop,(direct),5
+20260331,page_view,Singapore,"",desktop,(direct),5
+20260401,page_view,Singapore,Singapore,desktop,(direct),4
+20260401,session_start,Singapore,Singapore,desktop,(direct),4
+20260401,first_visit,Singapore,Singapore,desktop,(direct),4
+20260327,page_view,"","",desktop,(direct),3
+20260327,scroll,"","",desktop,(direct),3
+20260327,session_start,Singapore,Singapore,desktop,(direct),2
+20260326,page_view,Singapore,"",desktop,(direct),2
+20260327,first_visit,Singapore,Singapore,desktop,(direct),2
+20260327,user_engagement,"","",desktop,(direct),2
+20260326,session_start,Singapore,"",desktop,(direct),2
+20260327,page_view,Singapore,Singapore,desktop,(direct),2
+20260326,first_visit,Singapore,"",desktop,(direct),2
+20260326,page_view,Ireland,Dublin,desktop,google,2
+20260331,user_engagement,Canada,Edmonton,desktop,google,1
+20260331,session_start,United States,"",desktop,(direct),1
+20260326,page_view,Indonesia,"",desktop,buildornot,1
+20260401,scroll,Singapore,Singapore,desktop,(direct),1
+20260330,user_engagement,Greenland,Nuuk,mobile,google,1
+20260331,page_view,United States,Boardman,desktop,(direct),1
+20260331,first_visit,China,Suzhou,desktop,(direct),1
+20260330,session_start,United States,Addison,desktop,(direct),1
+20260330,scroll,United States,Addison,desktop,(direct),1
+20260331,scroll,China,Suzhou,desktop,(direct),1
+20260330,page_view,Singapore,Singapore,desktop,(direct),1
+20260330,session_start,Singapore,Singapore,desktop,(direct),1
+20260330,first_visit,Singapore,Singapore,desktop,(direct),1
+20260330,session_start,Greenland,Nuuk,mobile,google,1
+20260331,session_start,China,Suzhou,desktop,(direct),1
+20260401,session_start,Ireland,Dublin,desktop,google,1
+20260331,session_start,Taiwan,Zhudong Township,desktop,(direct),1
+20260401,first_visit,China,Chengdu,desktop,(direct),1
+20260401,page_view,Ireland,Dublin,desktop,google,1
+20260331,first_visit,United States,Boardman,desktop,(direct),1
+20260327,session_start,"","",desktop,(direct),1
+20260401,scroll,Singapore,"",desktop,(direct),1
+20260331,page_view,China,"",desktop,(direct),1
+20260330,page_view,United States,Addison,desktop,(direct),1
+20260330,first_visit,Greenland,Nuuk,mobile,google,1
+20260401,first_visit,Vietnam,Tuyen Quang,desktop,(direct),1
+20260330,page_view,Greenland,Nuuk,mobile,google,1
+20260331,page_view,United States,"",desktop,(direct),1
+20260401,page_view,China,"",desktop,(direct),1
+20260326,first_visit,Syria,"",desktop,(direct),1
+20260401,session_start,Vietnam,Tuyen Quang,desktop,(direct),1
+20260401,session_start,China,"",desktop,(direct),1
+20260401,first_visit,China,"",desktop,(direct),1
+20260331,first_visit,United States,"",desktop,(direct),1
+20260331,session_start,China,"",desktop,(direct),1
+20260328,page_view,China,"",desktop,(direct),1
+20260328,session_start,China,"",desktop,(direct),1
+20260328,first_visit,China,"",desktop,(direct),1
+20260401,session_start,Singapore,"",desktop,(direct),1
+20260401,first_visit,Singapore,"",desktop,(direct),1
+20260401,page_view,Vietnam,Tuyen Quang,desktop,(direct),1
+20260326,session_start,Ireland,Dublin,desktop,google,1
+20260331,first_visit,Canada,Edmonton,desktop,google,1
+20260331,first_visit,China,"",desktop,(direct),1
+20260331,page_view,Taiwan,Zhudong Township,desktop,(direct),1
+20260401,scroll,China,Chengdu,desktop,(direct),1
+20260331,session_start,United States,Boardman,desktop,(direct),1
+20260331,scroll,China,"",desktop,(direct),1
+20260326,session_start,Indonesia,"",desktop,buildornot,1
+20260326,session_start,United States,Addison,desktop,(direct),1
+20260326,page_view,United States,Addison,desktop,(direct),1
+20260326,scroll,United States,Addison,desktop,(direct),1
+20260326,session_start,Syria,"",desktop,(direct),1
+20260326,scroll,United States,Gunnison,desktop,(direct),1
+20260328,user_engagement,China,"",desktop,(direct),1
+20260326,scroll,Singapore,Singapore,desktop,(direct),1
+20260401,page_view,China,Chengdu,desktop,(direct),1
+20260327,first_visit,"","",desktop,(direct),1
+20260326,page_view,Syria,"",desktop,(direct),1
+20260326,session_start,United States,Fremont,desktop,(direct),1
+20260331,session_start,Canada,Edmonton,desktop,google,1
+20260401,session_start,China,Chengdu,desktop,(direct),1
+20260326,scroll,United States,"",desktop,(direct),1
+20260331,user_engagement,China,Suzhou,desktop,(direct),1
+20260331,first_visit,Taiwan,Zhudong Township,desktop,(direct),1
+20260331,scroll,United States,Boardman,desktop,(direct),1
+20260326,first_visit,United States,Fremont,desktop,(direct),1
+20260331,scroll,Taiwan,Zhudong Township,desktop,(direct),1
+20260331,scroll,Singapore,Singapore,desktop,(direct),1
+20260326,page_view,United States,Fremont,desktop,(direct),1
+20260326,first_visit,Indonesia,"",desktop,buildornot,1
+20260401,page_view,Singapore,"",desktop,(direct),1
+20260331,page_view,Canada,Edmonton,desktop,google,1
+20260331,scroll,Canada,Edmonton,desktop,google,1
+20260331,page_view,China,Suzhou,desktop,(direct),1
