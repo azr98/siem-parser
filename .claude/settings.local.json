@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python parser.py)",
+      "Bash(obsidian-cli --version)"
+    ]
+  }
+}
