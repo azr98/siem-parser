@@ -43,7 +43,7 @@ def write_events(data,file):
         data = json.dumps(data)
         d.write(data)
 
-def analyse_all_data(data_files):
+def write_all_event_counts(data_files):
     eventIDs = []
     for file in data_files.values():
         count_events(file)
@@ -59,7 +59,49 @@ def analyse_all_data(data_files):
         for eid in sorted(unique_event_ids):
             f.write(f"{eid}\n")
 
+def get_event_details(event_id, file):
+    lines = load_events(file)
+    events = {}
+    for line in lines:
+        new_event = {}
+        line = json.loads(line)
+        if event_id == line['EventID']:
+            #Check if event exists and add count
+            for event in events.values():
+                if event['SourceImage'] == line['SourceImage'] and event['TargetImage'] == line['TargetImage']:
+                    event['EventCount'] =+ 1
+            # if not make new event
+            else:
+                uid = f"{line['EventID']}_{line['SourceImage']}_{line['TargetImage']}"
+                events[uid] = {
+                'EventCount' : 1,
+                'EventID': line['EventID'],
+                'SourceImage': line['SourceImage'],
+                'TargetImage' : line['TargetImage']
+                }
+    readable_report = list(events.values())
+    return readable_report
 
+def log_query(event_id , file, source_image=None, target_image=None ):
+    event_id_data = get_event_details (event_id, file)
+    total_events = 0
+    event_id_count = 0
+    query_count = 0
+    query_result = {}
+    lines = load_events(file)
+    for line in lines:
+        if line.strip():
+            total_events +=1
+    query_result ['Total_file_events'] = total_events
+    for event in event_id_data:
+        event_id_count += event['EventCount']    
+    query_result ['Total_event_id_count'] = event_id_count
+     
+    for event in event_id_data:
+        if (source_image is not None and source_image in event['SourceImage']) or (target_image is not None and target_image in event["TargetImage"]):
+            query_count = event['EventCount']
+    query_result['query_event_count'] = query_count
+    return query_result
 
 
 data_files = {
@@ -70,4 +112,6 @@ data_files = {
 
 }
 
-analyse_all_data(data_files)
+# write_all_event_counts(data_files)
+# print(get_event_details(10, data_files["sharpview_discovery"]))
+print(log_query(10 , data_files["sharpview_discovery"] ,  target_image="lsass"))
