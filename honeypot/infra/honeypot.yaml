@@ -1,0 +1,394 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Cowrie SSH/Telnet honeypot on EC2. Internet-facing ports 22 and 23 are
+  redirected to Cowrie. There is no real SSH; admin access is through SSM
+  Session Manager only. Logs stream to CloudWatch Logs, and logs and malware
+  samples are archived to S3 for later SIEM ingestion.
+
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t4g.small
+    AllowedValues: [t4g.micro, t4g.small, t4g.medium]
+    Description: Graviton (arm64) instance size.
+  UbuntuAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id
+    Description: Latest Ubuntu 24.04 LTS arm64 AMI, resolved from Canonical's public SSM parameter.
+  CowrieVersion:
+    Type: String
+    Default: 3.1.5
+    Description: Pinned Cowrie release from PyPI.
+  CowrieHostname:
+    Type: String
+    Default: web-prod-02
+    Description: Hostname the fake shell presents to attackers.
+  AlertEmail:
+    Type: String
+    Description: Email address for the monthly budget alert.
+  MonthlyBudgetUsd:
+    Type: Number
+    Default: 25
+    Description: Monthly cost budget for the account (USD). Alerts at 80% actual and 100% forecast.
+
+Resources:
+  # ---------------------------------------------------------------- network
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.42.0.0/24
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: honeypot-vpc }]
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags: [{ Key: Name, Value: honeypot-igw }]
+
+  IgwAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.42.0.0/26
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags: [{ Key: Name, Value: honeypot-public }]
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: honeypot-public-rt }]
+
+  DefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: IgwAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  HoneypotSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Honeypot - SSH/Telnet open to the world, egress limited to HTTP/HTTPS
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: 0.0.0.0/0, Description: Cowrie SSH (redirected to 2222) }
+        - { IpProtocol: tcp, FromPort: 23, ToPort: 23, CidrIp: 0.0.0.0/0, Description: Cowrie Telnet (redirected to 2323) }
+      SecurityGroupEgress:
+        # 443: SSM, CloudWatch, S3, PyPI, apt, malware fetches over HTTPS
+        # 80: apt mirrors and malware fetches over HTTP (most IoT droppers)
+        - { IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0, Description: HTTPS }
+        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0, Description: HTTP }
+      Tags: [{ Key: Name, Value: honeypot-sg }]
+
+  # ---------------------------------------------------------------- storage
+  ArchiveBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+      Tags: [{ Key: Name, Value: honeypot-archive }]
+
+  ArchiveBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArchiveBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt ArchiveBucket.Arn, !Sub "${ArchiveBucket.Arn}/*"]
+            Condition: { Bool: { aws:SecureTransport: "false" } }
+
+  CowrieLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /honeypot/cowrie
+      RetentionInDays: 90
+
+  # ---------------------------------------------------------------- identity
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Honeypot instance - SSM access, write-only log shipping and archive
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: ec2.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: honeypot-least-privilege
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ShipCowrieLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !GetAtt CowrieLogGroup.Arn
+                  - !Sub "${CowrieLogGroup.Arn}:log-stream:*"
+              - Sid: DescribeLogGroups
+                Effect: Allow
+                Action: logs:DescribeLogGroups
+                Resource: "*"
+              - Sid: ArchiveWriteOnly
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub "${ArchiveBucket.Arn}/*"
+              - Sid: ArchiveListForSync
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt ArchiveBucket.Arn
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref InstanceRole]
+
+  # ---------------------------------------------------------------- compute
+  Honeypot:
+    Type: AWS::EC2::Instance
+    DependsOn: DefaultRoute
+    Properties:
+      ImageId: !Ref UbuntuAmi
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: [!Ref HoneypotSg]
+      IamInstanceProfile: !Ref InstanceProfile
+      MetadataOptions:
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: { VolumeSize: 16, VolumeType: gp3, Encrypted: true, DeleteOnTermination: true }
+      Tags: [{ Key: Name, Value: cowrie-honeypot }]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          exec > >(tee /var/log/honeypot-bootstrap.log) 2>&1
+          export DEBIAN_FRONTEND=noninteractive
+
+          # --- 0. The Elastic IP attaches after launch; wait for outbound internet.
+          for i in $(seq 1 60); do curl -fsS -o /dev/null --max-time 5 https://pypi.org && break; sleep 5; done
+
+          # --- 1. Kill the real SSH daemon. Admin access is SSM only.
+          systemctl disable --now ssh.socket ssh.service || true
+          systemctl mask ssh.socket ssh.service || true
+
+          # --- 2. Packages
+          apt-get update
+          apt-get -y upgrade
+          apt-get install -y python3-venv python3-dev build-essential libssl-dev libffi-dev nftables unattended-upgrades
+          snap wait system seed.loaded
+          snap install aws-cli --classic
+
+          # --- 3. Cowrie as an unprivileged user
+          useradd --system --create-home --home-dir /opt/cowrie --shell /usr/sbin/nologin cowrie
+          sudo -u cowrie python3 -m venv /opt/cowrie/cowrie-env
+          sudo -u cowrie /opt/cowrie/cowrie-env/bin/pip install --upgrade pip
+          sudo -u cowrie /opt/cowrie/cowrie-env/bin/pip install "cowrie==${CowrieVersion}"
+          sudo -u cowrie mkdir -p /opt/cowrie/etc /opt/cowrie/var/log/cowrie /opt/cowrie/var/lib/cowrie/downloads /opt/cowrie/var/lib/cowrie/tty /opt/cowrie/var/run
+
+          # Overrides only - Cowrie loads its bundled cowrie.cfg.dist defaults first.
+          # AuthRandom 2,2,0: every new source IP fails its first login and succeeds
+          # on the second distinct credential pair. maxcache=0 stops a cached pair
+          # letting a new IP in on its first try.
+          cat > /opt/cowrie/etc/cowrie.cfg <<'CFG'
+          [honeypot]
+          hostname = ${CowrieHostname}
+          auth_class = AuthRandom
+          auth_class_parameters = 2, 2, 0
+
+          [ssh]
+          listen_endpoints = tcp:2222:interface=0.0.0.0
+
+          [telnet]
+          enabled = true
+          listen_endpoints = tcp:2323:interface=0.0.0.0
+
+          [output_jsonlog]
+          enabled = true
+          logfile = var/log/cowrie/cowrie.json
+          epoch_timestamp = false
+          CFG
+          chown cowrie:cowrie /opt/cowrie/etc/cowrie.cfg
+
+          cat > /etc/systemd/system/cowrie.service <<'UNIT'
+          [Unit]
+          Description=Cowrie SSH/Telnet honeypot
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User=cowrie
+          Group=cowrie
+          WorkingDirectory=/opt/cowrie
+          Environment=PATH=/opt/cowrie/cowrie-env/bin:/usr/bin:/bin
+          # Call twistd directly: in foreground mode the `cowrie start` launcher
+          # passes no --pidfile, so twistd writes ./twistd.pid in /opt/cowrie,
+          # which ProtectSystem=strict makes read-only. Keep the PID under var/.
+          ExecStart=/opt/cowrie/cowrie-env/bin/twistd --umask=0022 --nodaemon --pidfile=/opt/cowrie/var/run/cowrie.pid --logger cowrie.python.logfile.stdoutLogger cowrie
+          Restart=always
+          RestartSec=5
+          NoNewPrivileges=true
+          PrivateTmp=true
+          ProtectSystem=strict
+          ProtectHome=true
+          ReadWritePaths=/opt/cowrie/var
+          CapabilityBoundingSet=
+          AmbientCapabilities=
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          # --- 4. Port redirects: 22 -> 2222 (SSH), 23 -> 2323 (Telnet)
+          cat > /etc/nftables.conf <<'NFT'
+          #!/usr/sbin/nft -f
+          flush ruleset
+          table ip honeypot_nat {
+            chain prerouting {
+              type nat hook prerouting priority dstnat; policy accept;
+              tcp dport 22 redirect to :2222
+              tcp dport 23 redirect to :2323
+            }
+          }
+          NFT
+          systemctl enable --now nftables
+          nft -f /etc/nftables.conf
+
+          # --- 5. CloudWatch agent: stream cowrie.json to CloudWatch Logs
+          curl -fsSL -o /tmp/cwagent.deb https://amazoncloudwatch-agent.s3.amazonaws.com/ubuntu/arm64/latest/amazon-cloudwatch-agent.deb
+          dpkg -i /tmp/cwagent.deb
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/honeypot.json <<'CWA'
+          {
+            "agent": { "run_as_user": "root" },
+            "logs": {
+              "logs_collected": {
+                "files": {
+                  "collect_list": [
+                    {
+                      "file_path": "/opt/cowrie/var/log/cowrie/cowrie.json",
+                      "log_group_name": "${CowrieLogGroup}",
+                      "log_stream_name": "{instance_id}/cowrie.json",
+                      "retention_in_days": -1
+                    }
+                  ]
+                }
+              }
+            }
+          }
+          CWA
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/honeypot.json
+
+          # --- 6. Hourly archive to S3: rotated JSON logs, TTY recordings, malware samples
+          cat > /usr/local/bin/honeypot-archive.sh <<'ARC'
+          #!/bin/bash
+          set -euo pipefail
+          B="s3://${ArchiveBucket}"
+          ID=$(cat /var/lib/cloud/data/instance-id)
+          /snap/bin/aws s3 sync /opt/cowrie/var/log/cowrie "$B/logs/$ID/" --exclude "*" --include "cowrie.json.*" --only-show-errors
+          /snap/bin/aws s3 sync /opt/cowrie/var/lib/cowrie/tty "$B/tty/$ID/" --only-show-errors
+          /snap/bin/aws s3 sync /opt/cowrie/var/lib/cowrie/downloads "$B/malware/" --only-show-errors
+          ARC
+          chmod 755 /usr/local/bin/honeypot-archive.sh
+
+          cat > /etc/systemd/system/honeypot-archive.service <<'SVC'
+          [Unit]
+          Description=Archive Cowrie data to S3
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/honeypot-archive.sh
+          SVC
+          cat > /etc/systemd/system/honeypot-archive.timer <<'TMR'
+          [Unit]
+          Description=Hourly Cowrie archive to S3
+          [Timer]
+          OnCalendar=hourly
+          RandomizedDelaySec=300
+          Persistent=true
+          [Install]
+          WantedBy=timers.target
+          TMR
+
+          # --- 7. Start everything
+          systemctl daemon-reload
+          systemctl enable --now cowrie.service honeypot-archive.timer
+          echo "HONEYPOT BOOTSTRAP COMPLETE"
+
+  HoneypotEip:
+    Type: AWS::EC2::EIP
+    DependsOn: IgwAttachment
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref Honeypot
+      Tags: [{ Key: Name, Value: honeypot-eip }]
+
+  # ---------------------------------------------------------------- cost guardrail
+  MonthlyBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: honeypot-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref MonthlyBudgetUsd, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, Threshold: 80, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+        - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, Threshold: 100, ThresholdType: PERCENTAGE }
+          Subscribers: [{ SubscriptionType: EMAIL, Address: !Ref AlertEmail }]
+
+Outputs:
+  PublicIp:
+    Description: The honeypot's public address (what attackers hit)
+    Value: !Ref HoneypotEip
+  InstanceId:
+    Value: !Ref Honeypot
+  AdminShell:
+    Description: Admin access via SSM (no SSH)
+    Value: !Sub "aws ssm start-session --target ${Honeypot} --region ${AWS::Region}"
+  LogGroup:
+    Value: !Ref CowrieLogGroup
+  ArchiveBucket:
+    Value: !Ref ArchiveBucket
